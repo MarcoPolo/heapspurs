@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"runtime"
 	"runtime/debug"
+	"strconv"
+	"strings"
 
 	"github.com/adamroach/heapspurs/internal/pkg/config"
 	"github.com/adamroach/heapspurs/pkg/heapdump"
@@ -27,6 +29,28 @@ func main() {
 		err = heapdump.ReadOids(file)
 		if err != nil {
 			panic(fmt.Sprintf("Reading OID file '%s': %v\n", conf.Oid, err))
+		}
+		file.Close()
+	}
+
+	if len(conf.MallocMeta) > 0 {
+		fmt.Printf("Reading malloc metadata from %s\n", conf.MallocMeta)
+		file, err := os.Open(conf.MallocMeta)
+		if err != nil {
+			panic(fmt.Sprintf("Open MallocMeta file '%s': %v\n", conf.Oid, err))
+		}
+
+		s := bufio.NewScanner(file)
+		s.Split(bufio.ScanLines)
+		for s.Scan() {
+			txt := s.Text()
+			txt = txt[4:] // Drop "$$$ "
+			parts := strings.Split(txt, " ")
+			ptr, err := strconv.ParseUint(parts[0][2:], 16, 64)
+			if err != nil {
+				panic(fmt.Sprintf("Error parsing '%s' as hex: %v\n", parts[0], err))
+			}
+			heapdump.AddName(ptr, parts[1])
 		}
 		file.Close()
 	}
@@ -121,6 +145,7 @@ func main() {
 	if err != nil {
 		panic(fmt.Sprintf("Create '%s': %v\n", conf.Output, err))
 	}
-	climber.WriteSVG(conf.Address, out)
+	panic("Not implemented")
+	// climber.WriteSVG(conf.Address, out)
 	out.Close()
 }

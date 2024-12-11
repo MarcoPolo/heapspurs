@@ -10,18 +10,19 @@ import (
 )
 
 type Config struct {
-	Dumpfile string
-	Output   string
-	Oid      string
-	Program  string
-	Address  uint64
-	Children bool
-	Print    bool
-	Find     string
-	Hexdump  bool
-	Anchors  bool
-	Owners   int
-	MakeDump string
+	Dumpfile   string
+	Output     string
+	Oid        string
+	MallocMeta string
+	Program    string
+	Address    uint64
+	Children   bool
+	Print      bool
+	Find       string
+	Hexdump    bool
+	Anchors    bool
+	Owners     int
+	MakeDump   string
 }
 
 func Initialize() (*Config, error) {
@@ -29,6 +30,7 @@ func Initialize() (*Config, error) {
 	flag.String("dumpfile", "", "Heap dump file to read")
 	flag.String("output", "heapdump.svg", "Output file")
 	flag.String("oid", "", "File that maps from OIDs to object names")
+	flag.String("mallocmeta", "", "File that maps from ptrs to object names. Line format: $$$ 0x14000100180 os.file")
 	flag.String("program", "", "File to read symbol information from")
 	flag.Int("address", 0, "Address of object to analyze")
 	// flag.Bool("children", false, "If set, will show children rather than parents")
