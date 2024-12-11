@@ -198,7 +198,7 @@ func (r *Object) GetName() string {
 }
 
 func (r *Object) String() string {
-	return fmt.Sprintf("%s @ 0x%x with %d pointers in %d bytes", r.GetName(), r.Address, len(r.Fields), len(r.Contents))
+	return fmt.Sprintf("%s @ %s with %d pointers in %d bytes", r.GetName(), Addr(r.Address), len(r.Fields), len(r.Contents))
 }
 
 func (r *Object) Read(reader *bufio.Reader) (err error) {
