@@ -4,12 +4,9 @@ import (
 	"bufio"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"strings"
 
 	"github.com/adamroach/heapspurs/pkg/heapdump"
-	"github.com/goccy/go-graphviz"
-	"github.com/goccy/go-graphviz/cgraph"
 )
 
 type TreeClimber struct {
@@ -61,32 +58,6 @@ func (c *TreeClimber) Hexdump(address uint64) (string, error) {
 	return ret, nil
 }
 
-func (c *TreeClimber) WritePNG(address uint64, w io.Writer) error {
-	return c.WriteImage(address, w, graphviz.PNG)
-}
-
-func (c *TreeClimber) WriteSVG(address uint64, w io.Writer) error {
-	return c.WriteImage(address, w, graphviz.SVG)
-}
-
-func (c *TreeClimber) WriteImage(address uint64, w io.Writer, format graphviz.Format) error {
-	c.visited = make(map[uint64]bool)
-	defer func() { c.visited = nil }()
-
-	g := graphviz.New()
-	defer g.Close()
-	graph, err := g.Graph()
-	if err != nil {
-		return err
-	}
-	defer graph.Close()
-
-	c.addNode(graph, address, true)
-
-	fmt.Printf("Rendering graph (%d nodes)...\n", len(c.visited))
-	return g.Render(graph, format, w)
-}
-
 ///////////////////////////////////////////////////////////////////////////
 
 func unitize(x uint64) string {
@@ -110,96 +81,96 @@ func unitize(x uint64) string {
 // StackFrame
 // BssSegment
 // DataSegment
-func (c *TreeClimber) addNode(graph *cgraph.Graph, address uint64, spotlight bool) *cgraph.Node {
-	record, found := c.memory[address]
-	if !found {
-		node, _ := graph.CreateNode(fmt.Sprintf("0x%x", address))
-		node.SetLabel(fmt.Sprintf("???\n0x%x", address))
-		node.SetShape(cgraph.PlainShape)
-		if spotlight {
-			node.SetStyle(cgraph.FilledNodeStyle)
-			node.SetFillColor("yellow")
-		}
-		return node
-	}
-
-	if c.visited[address] {
-		node, _ := graph.Node(fmt.Sprintf("0x%x", address))
-		return node
-	}
-	c.visited[address] = true
-
-	finalizer, _ := c.finalizers[address]
-
-	node, _ := graph.CreateNode(fmt.Sprintf("0x%x", address))
-	switch r := record.(type) {
-	case *heapdump.Object:
-		name := r.GetName()
-		if name != "Object" {
-			node.SetFontColor("#008000")
-		}
-		label := fmt.Sprintf("%s (%s)\n0x%x", name, unitize(uint64(len(r.Contents))), address)
-		if finalizer != nil {
-			label += fmt.Sprintf("\n%T", finalizer)
-			node.SetColor("red")
-			node.SetPenWidth(5)
-		}
-		node.SetLabel(label)
-		node.SetShape(cgraph.EllipseShape)
-
-		// Objects generally have owners; track them down and graph them.
-		// Because owners can point to subfields within an object, we need to scan
-		// for references anywhere inside the object.
-		foundOwner := false
-		end := uint64(len(r.Contents)) + address
-		for dest := address; dest < end; dest++ {
-			o, hasOwners := c.owners[dest]
-			if hasOwners {
-				for _, owner := range o {
-					a, isOwner := owner.(heapdump.Owner)
-					if isOwner {
-						foundOwner = true
-						on := c.addNode(graph, a.GetAddress(), false)
-						edge, _ := graph.CreateEdge("", on, node)
-						if dest != address {
-							edge.SetHeadLabel(fmt.Sprintf("0x%x\n(offset = %d)", dest, dest-address))
-							edge.SetColor("red")
-						}
-						ps := heapdump.GetPointersSourceAddress(a, dest, c.params)
-						if ps != 0 {
-							name := heapdump.GetName(ps)
-							if name != "" {
-								edge.SetTailLabel(name)
-							}
-						}
-					}
-				}
-			}
-		}
-		if !foundOwner {
-			node.SetStyle(cgraph.FilledNodeStyle)
-			node.SetFillColor("gray")
-		}
-	case *heapdump.StackFrame:
-		node.SetLabel(fmt.Sprintf("StackFrame @ 0x%x\n%s", address, c.fullStack(address, "\\l")+"\\l"))
-		node.SetShape(cgraph.BoxShape)
-	case *heapdump.BssSegment:
-		node.SetLabel("BssSegment")
-		node.SetShape(cgraph.DoubleOctagonShape)
-	case *heapdump.DataSegment:
-		node.SetLabel("DataSegment")
-		node.SetShape(cgraph.TripleOctagonShape)
-	default:
-		node.SetLabel(fmt.Sprintf("%T\n0x%x", r, address))
-		node.SetShape(cgraph.HouseShape)
-	}
-	if spotlight {
-		node.SetStyle(cgraph.FilledNodeStyle)
-		node.SetFillColor("yellow")
-	}
-
-	return node
-}
+// func (c *TreeClimber) addNode(graph *cgraph.Graph, address uint64, spotlight bool) *cgraph.Node {
+// 	record, found := c.memory[address]
+// 	if !found {
+// 		node, _ := graph.CreateNode(fmt.Sprintf("0x%x", address))
+// 		node.SetLabel(fmt.Sprintf("???\n0x%x", address))
+// 		node.SetShape(cgraph.PlainShape)
+// 		if spotlight {
+// 			node.SetStyle(cgraph.FilledNodeStyle)
+// 			node.SetFillColor("yellow")
+// 		}
+// 		return node
+// 	}
+//
+// 	if c.visited[address] {
+// 		node, _ := graph.Node(fmt.Sprintf("0x%x", address))
+// 		return node
+// 	}
+// 	c.visited[address] = true
+//
+// 	finalizer, _ := c.finalizers[address]
+//
+// 	node, _ := graph.CreateNode(fmt.Sprintf("0x%x", address))
+// 	switch r := record.(type) {
+// 	case *heapdump.Object:
+// 		name := r.GetName()
+// 		if name != "Object" {
+// 			node.SetFontColor("#008000")
+// 		}
+// 		label := fmt.Sprintf("%s (%s)\n0x%x", name, unitize(uint64(len(r.Contents))), address)
+// 		if finalizer != nil {
+// 			label += fmt.Sprintf("\n%T", finalizer)
+// 			node.SetColor("red")
+// 			node.SetPenWidth(5)
+// 		}
+// 		node.SetLabel(label)
+// 		node.SetShape(cgraph.EllipseShape)
+//
+// 		// Objects generally have owners; track them down and graph them.
+// 		// Because owners can point to subfields within an object, we need to scan
+// 		// for references anywhere inside the object.
+// 		foundOwner := false
+// 		end := uint64(len(r.Contents)) + address
+// 		for dest := address; dest < end; dest++ {
+// 			o, hasOwners := c.owners[dest]
+// 			if hasOwners {
+// 				for _, owner := range o {
+// 					a, isOwner := owner.(heapdump.Owner)
+// 					if isOwner {
+// 						foundOwner = true
+// 						on := c.addNode(graph, a.GetAddress(), false)
+// 						edge, _ := graph.CreateEdge("", on, node)
+// 						if dest != address {
+// 							edge.SetHeadLabel(fmt.Sprintf("0x%x\n(offset = %d)", dest, dest-address))
+// 							edge.SetColor("red")
+// 						}
+// 						ps := heapdump.GetPointersSourceAddress(a, dest, c.params)
+// 						if ps != 0 {
+// 							name := heapdump.GetName(ps)
+// 							if name != "" {
+// 								edge.SetTailLabel(name)
+// 							}
+// 						}
+// 					}
+// 				}
+// 			}
+// 		}
+// 		if !foundOwner {
+// 			node.SetStyle(cgraph.FilledNodeStyle)
+// 			node.SetFillColor("gray")
+// 		}
+// 	case *heapdump.StackFrame:
+// 		node.SetLabel(fmt.Sprintf("StackFrame @ 0x%x\n%s", address, c.fullStack(address, "\\l")+"\\l"))
+// 		node.SetShape(cgraph.BoxShape)
+// 	case *heapdump.BssSegment:
+// 		node.SetLabel("BssSegment")
+// 		node.SetShape(cgraph.DoubleOctagonShape)
+// 	case *heapdump.DataSegment:
+// 		node.SetLabel("DataSegment")
+// 		node.SetShape(cgraph.TripleOctagonShape)
+// 	default:
+// 		node.SetLabel(fmt.Sprintf("%T\n0x%x", r, address))
+// 		node.SetShape(cgraph.HouseShape)
+// 	}
+// 	if spotlight {
+// 		node.SetStyle(cgraph.FilledNodeStyle)
+// 		node.SetFillColor("yellow")
+// 	}
+//
+// 	return node
+// }
 
 func (c *TreeClimber) fullStack(address uint64, separator string) string {
 	out := make([]string, 0)
