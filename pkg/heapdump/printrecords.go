@@ -32,7 +32,7 @@ func PrintRecords(reader *bufio.Reader, search string) error {
 
 		_, isEof := record.(*Eof)
 		obj, isObject := record.(*Object)
-		if len(search) > 0 && !isEof && (!isObject || !(re.MatchString(obj.Name) || re.MatchString(Addr(obj.Address).String()))) {
+		if len(search) > 0 && !isEof && (!isObject || !(re.MatchString(obj.Name) || re.MatchString(obj.AddrPretty()))) {
 			continue
 		}
 		s, canString := record.(fmt.Stringer)

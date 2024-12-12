@@ -7,10 +7,12 @@ import (
 )
 
 var nameMap map[uint64]string
+var nameSizeMap map[uint64]map[int]string
 var oidMap map[uint64]string
 
 func init() {
 	nameMap = make(map[uint64]string)
+	nameSizeMap = make(map[uint64]map[int]string)
 	oidMap = make(map[uint64]string)
 }
 
@@ -22,10 +24,27 @@ func AddName(addr uint64, name string) {
 	nameMap[addr] = name
 }
 
+func AddNameWithSize(addr uint64, size int, name string) {
+	if _, found := nameSizeMap[addr]; !found {
+		nameSizeMap[addr] = make(map[int]string)
+	}
+
+	nameSizeMap[addr][size] = name
+}
+
+func GetNameWithSize(addr uint64, size int) string {
+	if _, found := nameSizeMap[addr]; found {
+		if name, found := nameSizeMap[addr][size]; found {
+			return name
+		}
+	}
+	return ""
+}
+
 func GetName(addr uint64) string {
 	name, found := nameMap[addr]
 	if found {
-		return name
+		return name + "(?)"
 	}
 	return ""
 }
@@ -69,8 +88,8 @@ func ReadSymbols(r io.Reader) error {
 type Addr uint64
 
 func (a Addr) String() string {
-	name, found := nameMap[uint64(a)]
-	if found {
+	name := GetName(uint64(a))
+	if name != "" {
 		return fmt.Sprintf("0x%x (%s)", uint64(a), name)
 	}
 	return fmt.Sprintf("0x%x", uint64(a))

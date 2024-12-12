@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"runtime"
@@ -34,7 +35,7 @@ func main() {
 	}
 
 	if len(conf.MallocMeta) > 0 {
-		fmt.Printf("Reading malloc metadata from %s\n", conf.MallocMeta)
+		log.Printf("Reading malloc metadata from %s\n", conf.MallocMeta)
 		file, err := os.Open(conf.MallocMeta)
 		if err != nil {
 			panic(fmt.Sprintf("Open MallocMeta file '%s': %v\n", conf.Oid, err))
@@ -44,13 +45,21 @@ func main() {
 		s.Split(bufio.ScanLines)
 		for s.Scan() {
 			txt := s.Text()
-			txt = txt[4:] // Drop "$$$ "
-			parts := strings.Split(txt, " ")
+			parts := strings.Split(txt, ": ")
 			ptr, err := strconv.ParseUint(parts[0][2:], 16, 64)
 			if err != nil {
 				panic(fmt.Sprintf("Error parsing '%s' as hex: %v\n", parts[0], err))
 			}
-			heapdump.AddName(ptr, parts[1])
+
+			lastSpace := strings.LastIndex(parts[1], " ")
+			name := parts[1][:lastSpace]
+
+			size, err := strconv.ParseUint(parts[1][lastSpace+1:], 10, 64)
+			if err != nil {
+				panic(fmt.Sprintf("Error parsing size '%s': %v\n", parts[2], err))
+			}
+			heapdump.AddName(ptr, name)
+			heapdump.AddNameWithSize(ptr, int(size), name)
 		}
 		file.Close()
 	}
