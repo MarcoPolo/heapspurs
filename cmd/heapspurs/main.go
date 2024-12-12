@@ -13,6 +13,7 @@ import (
 
 	"github.com/adamroach/heapspurs/internal/pkg/config"
 	"github.com/adamroach/heapspurs/pkg/heapdump"
+	"github.com/adamroach/heapspurs/pkg/trace"
 	"github.com/adamroach/heapspurs/pkg/treeclimber"
 )
 
@@ -34,8 +35,32 @@ func main() {
 		file.Close()
 	}
 
-	if len(conf.MallocMeta) > 0 {
-		log.Printf("Reading malloc metadata from %s\n", conf.MallocMeta)
+	hasMallocMeta := len(conf.MallocMeta) > 0
+	hasTrace := len(conf.Trace) > 0
+
+	if hasMallocMeta && hasTrace {
+		log.Fatal("Cannot specify both MallocMeta and Trace")
+	}
+	if hasTrace {
+		file, err := os.Open(conf.Trace)
+		if err != nil {
+			panic(fmt.Sprintf("Open Trace file '%s': %v\n", conf.Oid, err))
+		}
+
+		mappings, err := trace.ParseTrace(file, false, false)
+		if err != nil {
+			panic(fmt.Sprintf("failed to parse: %v\n", err))
+		}
+
+		for _, m := range mappings {
+			heapdump.AddName(m.Ptr, m.TypeName)
+			heapdump.AddNameWithSize(m.Ptr, m.Size, m.TypeName)
+		}
+
+		file.Close()
+	}
+
+	if hasMallocMeta {
 		file, err := os.Open(conf.MallocMeta)
 		if err != nil {
 			panic(fmt.Sprintf("Open MallocMeta file '%s': %v\n", conf.Oid, err))

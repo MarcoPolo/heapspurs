@@ -14,6 +14,7 @@ type Config struct {
 	Output     string
 	Oid        string
 	MallocMeta string
+	Trace      string
 	Program    string
 	Address    uint64
 	Children   bool
@@ -31,6 +32,7 @@ func Initialize() (*Config, error) {
 	flag.String("output", "heapdump.svg", "Output file")
 	flag.String("oid", "", "File that maps from OIDs to object names")
 	flag.String("mallocmeta", "", "File that maps from ptrs to object names. Line format: $$$ 0x14000100180 os.file")
+	flag.String("trace", "", "trace output when process ran with GODEBUG=traceallocfree=1")
 	flag.String("program", "", "File to read symbol information from")
 	flag.Int("address", 0, "Address of object to analyze")
 	// flag.Bool("children", false, "If set, will show children rather than parents")
