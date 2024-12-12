@@ -1,15 +1,42 @@
 package main
 
 import (
-	"bufio"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"slices"
-	"strconv"
-	"strings"
+
+	"golang.org/x/exp/trace"
+)
+
+const (
+	traceAllocFreeTypesBatch = iota // Contains types. [{id, address, size, ptrspan, name length, name string} ...]
+	traceAllocFreeInfoBatch         // Contains info for interpreting events. [min heap addr, page size, min heap align, min stack align]
+)
+
+type traceEv uint8
+
+const (
+	_ traceEv = 127 + iota
+
+	// Experimental events for ExperimentAllocFree.
+
+	// Experimental heap span events. IDs map reversibly to base addresses.
+	traceEvSpan      // heap span exists [timestamp, id, npages, type/class]
+	traceEvSpanAlloc // heap span alloc [timestamp, id, npages, type/class]
+	traceEvSpanFree  // heap span free [timestamp, id]
+
+	// Experimental heap object events. IDs map reversibly to addresses.
+	traceEvHeapObject      // heap object exists [timestamp, id, type]
+	traceEvHeapObjectAlloc // heap object alloc [timestamp, id, type]
+	traceEvHeapObjectFree  // heap object free [timestamp, id]
+
+	// Experimental goroutine stack events. IDs map reversibly to addresses.
+	traceEvGoroutineStack      // stack exists [timestamp, id, order]
+	traceEvGoroutineStackAlloc // stack alloc [timestamp, id, order]
+	traceEvGoroutineStackFree  // stack free [timestamp, id]
 )
 
 type TypeMeta struct {
@@ -28,11 +55,10 @@ type TraceInfo struct {
 }
 
 type HeapObjectAlloc struct {
-	dt  uint64
 	id  uint64
 	typ int
 
-	order int
+	time trace.Time
 }
 
 func (h HeapObjectAlloc) Addr(t TraceInfo) string {
@@ -64,8 +90,7 @@ const debug = false
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Printf("Usage: %s <trace.txt>\n\n", os.Args[0])
-		fmt.Printf("Generate trace.txt with `go tool -d=2 trace.bin > trace.txt\n")
+		fmt.Printf("Usage: %s <trace.bin>\n\n", os.Args[0])
 
 		os.Exit(1)
 	}
@@ -86,85 +111,58 @@ func main() {
 		defer f.Close()
 	}
 
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 1<<20), 1<<30)
-	scanner.Split(bufio.ScanLines)
+	tr, err := trace.NewReader(r)
+	if err != nil {
+		log.Fatal("trace.NewReader", err)
+	}
 
 	var allocFreeInfo TraceInfo
-	var types []TypeMeta
 	typeMap := map[int]TypeMeta{}
 	allocs := map[uint64]HeapObjectAlloc{}
 
-	for scanner.Scan() {
-		line := scanner.Text()
-		var order int
+	for {
+		ev, err := tr.ReadEvent()
+		if err == io.EOF {
+			break
+		}
 
-		switch {
-		case strings.HasPrefix(line, "HeapObjectAlloc"):
-			parts := strings.Split(line, " ")
-			dt, err := strconv.ParseUint(parts[1][len("dt="):], 10, 64)
-			if err != nil {
-				log.Fatal("dt", line, err)
-			}
-			id, err := strconv.ParseUint(parts[2][len("id="):], 10, 64)
-			if err != nil {
-				log.Fatal("id", line, err)
-			}
-			typ, err := strconv.Atoi(parts[3][len("typ3="):])
-			if err != nil {
-				log.Fatal("typ", line, err)
-			}
+		if ev.Kind() != trace.EventExperimental {
+			continue
+		}
+		expEvent := ev.Experimental()
 
-			// if _, ok := allocs[id]; ok {
-			// 	log.Printf("Duplicate alloc id: %d", id)
-			// }
-			order++
-			h := HeapObjectAlloc{dt: dt, id: id, typ: typ, order: order}
+		switch expEvent.Name {
+		case "HeapObjectAlloc":
+			id := expEvent.Args[0]
+			typ := expEvent.Args[1]
+			h := HeapObjectAlloc{id: id, typ: int(typ), time: ev.Time()}
 			allocs[id] = h
-		case strings.HasPrefix(line, "HeapObjectFree"):
-			parts := strings.Split(line, " ")
-			// dt, err := strconv.ParseUint(parts[1][len("dt="):], 10, 64)
-			// if err != nil {
-			// 	log.Fatal(err)
-			// }
-			id, err := strconv.ParseUint(parts[2][len("id="):], 10, 64)
-			if err != nil {
-				log.Fatal("failed to parse free", err, "line", line)
-			}
+		case "HeapObjectFree":
+			id := expEvent.Args[0]
 			delete(allocs, id)
-		case strings.HasPrefix(line, "ExperimentalBatch exp=1"):
-			scanner.Scan()
-			nextLine := scanner.Text()
-			if len(nextLine) == 0 {
-				// log.Fatal("empty line after ExperimentalBatch")
-				continue
+		case "Span":
+			expData := expEvent.Data
+			if expData == nil {
+				log.Fatal("expData is nil")
 			}
-			var data []byte
-			_, err := fmt.Sscanf(nextLine, "\tdata=%q", &data)
-			if err != nil {
-				log.Fatal(line, " data ", nextLine, err)
-			}
-			if data[0] == 1 {
-				allocFreeInfo = parseAllocFreeInfo(data)
-			} else if data[0] == 0 {
-				types = parseAllocFreeTypes(data)
-				if debug {
-					fmt.Println("Types:")
-				}
-				for _, t := range types {
+			for _, b := range expData.Batches {
+				data := b.Data
+				if data[0] == 1 {
+					allocFreeInfo = parseAllocFreeInfo(data)
 					if debug {
-						fmt.Printf("Type: %+v\n", t)
+						fmt.Printf("AllocFreeInfo: %+v\n", allocFreeInfo)
 					}
-					typeMap[t.Id] = t
+				} else if data[0] == 0 {
+					types := parseAllocFreeTypes(data)
+					for _, t := range types {
+						if debug {
+							fmt.Printf("Type: %+v\n", t)
+						}
+						typeMap[t.Id] = t
+					}
 				}
-			} else {
-				panic("unknown data type")
 			}
 		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		log.Fatal("err scanning:", err)
 	}
 
 	if debug {
@@ -176,7 +174,7 @@ func main() {
 		allocsSlice = append(allocsSlice, h)
 	}
 	slices.SortFunc(allocsSlice, func(a, b HeapObjectAlloc) int {
-		return a.order - b.order
+		return int(a.time - b.time)
 	})
 	for _, h := range allocsSlice {
 		if h.HasName(typeMap) {
