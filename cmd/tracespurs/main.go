@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"slices"
+	"time"
 
 	"golang.org/x/exp/trace"
 )
@@ -88,6 +89,18 @@ func (h HeapObjectAlloc) HasName(t map[int]TypeMeta) bool {
 
 const debug = false
 
+type bytesReadReader struct {
+	r         io.Reader
+	bytesRead int
+}
+
+func (b *bytesReadReader) Read(p []byte) (int, error) {
+	n, err := b.r.Read(p)
+	b.bytesRead += n
+	return n, err
+
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Printf("Usage: %s <trace.bin>\n\n", os.Args[0])
@@ -95,18 +108,28 @@ func main() {
 		os.Exit(1)
 	}
 
-	traceTxt := os.Args[1]
+	traceFile := os.Args[1]
 
+	fileSizeBytes := -1
+	var bytesReadPtr *int
 	var r io.Reader
-	if traceTxt == "-" {
+	if traceFile == "-" {
 		r = os.Stdin
+		bytesReadPtr = &fileSizeBytes
 	} else {
-		f, err := os.Open(traceTxt)
+		f, err := os.Open(traceFile)
 		if err != nil {
 			fmt.Println("Error opening file:", err)
 			os.Exit(1)
 		}
-		r = f
+
+		if fileInfo, err := f.Stat(); err == nil {
+			fileSizeBytes = int(fileInfo.Size())
+		}
+
+		rdr := &bytesReadReader{r: f}
+		r = rdr
+		bytesReadPtr = &rdr.bytesRead
 
 		defer f.Close()
 	}
@@ -120,7 +143,16 @@ func main() {
 	typeMap := map[int]TypeMeta{}
 	allocs := map[uint64]HeapObjectAlloc{}
 
+	start := time.Now()
+
+	loopIters := 0
 	for {
+		if loopIters%10_000_000 == 0 {
+			pctDone := (*bytesReadPtr * 100) / fileSizeBytes
+			log.Printf("Parsing... %d/%d %d%%\n", *bytesReadPtr, fileSizeBytes, pctDone)
+		}
+		loopIters++
+
 		ev, err := tr.ReadEvent()
 		if err == io.EOF {
 			break
@@ -165,6 +197,9 @@ func main() {
 		}
 	}
 
+	log.Printf("Done parsing: %v\n", time.Since(start))
+	start = time.Now()
+
 	if debug {
 		fmt.Printf("AllocFree Info: %+v\n", allocFreeInfo)
 	}
@@ -176,6 +211,7 @@ func main() {
 	slices.SortFunc(allocsSlice, func(a, b HeapObjectAlloc) int {
 		return int(a.time - b.time)
 	})
+	log.Printf("Done sorting: %v\n", time.Since(start))
 	for _, h := range allocsSlice {
 		if h.HasName(typeMap) {
 			fmt.Printf("%s: %s %d\n", h.Addr(allocFreeInfo), h.Type(typeMap), h.Size(typeMap))
