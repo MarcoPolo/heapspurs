@@ -23,18 +23,6 @@ func main() {
 		panic(fmt.Sprintf("Config: %v\n", err))
 	}
 
-	if len(conf.Oid) > 0 {
-		file, err := os.Open(conf.Oid)
-		if err != nil {
-			panic(fmt.Sprintf("Open OID file '%s': %v\n", conf.Oid, err))
-		}
-		err = heapdump.ReadOids(file)
-		if err != nil {
-			panic(fmt.Sprintf("Reading OID file '%s': %v\n", conf.Oid, err))
-		}
-		file.Close()
-	}
-
 	hasMallocMeta := len(conf.MallocMeta) > 0
 	hasTrace := len(conf.Trace) > 0
 
@@ -85,6 +73,18 @@ func main() {
 			}
 			heapdump.AddName(ptr, name)
 			heapdump.AddNameWithSize(ptr, int(size), name)
+		}
+		file.Close()
+	}
+
+	if len(conf.Oid) > 0 {
+		file, err := os.Open(conf.Oid)
+		if err != nil {
+			panic(fmt.Sprintf("Open OID file '%s': %v\n", conf.Oid, err))
+		}
+		err = heapdump.ReadOids(file)
+		if err != nil {
+			panic(fmt.Sprintf("Reading OID file '%s': %v\n", conf.Oid, err))
 		}
 		file.Close()
 	}
