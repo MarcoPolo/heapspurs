@@ -2,6 +2,7 @@ package treeclimber
 
 import (
 	"bufio"
+	"context"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -72,8 +73,13 @@ func (c *TreeClimber) WriteSVG(address uint64, w io.Writer) error {
 func (c *TreeClimber) WriteImage(address uint64, w io.Writer, format graphviz.Format) error {
 	c.visited = make(map[uint64]bool)
 	defer func() { c.visited = nil }()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	g := graphviz.New()
+	g, err := graphviz.New(ctx)
+	if err != nil {
+		return err
+	}
 	defer g.Close()
 	graph, err := g.Graph()
 	if err != nil {
@@ -84,7 +90,7 @@ func (c *TreeClimber) WriteImage(address uint64, w io.Writer, format graphviz.Fo
 	c.addNode(graph, address, true)
 
 	fmt.Printf("Rendering graph (%d nodes)...\n", len(c.visited))
-	return g.Render(graph, format, w)
+	return g.Render(ctx, graph, format, w)
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -113,7 +119,7 @@ func unitize(x uint64) string {
 func (c *TreeClimber) addNode(graph *cgraph.Graph, address uint64, spotlight bool) *cgraph.Node {
 	record, found := c.memory[address]
 	if !found {
-		node, _ := graph.CreateNode(fmt.Sprintf("0x%x", address))
+		node, _ := graph.CreateNodeByName(fmt.Sprintf("0x%x", address))
 		node.SetLabel(fmt.Sprintf("???\n0x%x", address))
 		node.SetShape(cgraph.PlainShape)
 		if spotlight {
@@ -124,14 +130,14 @@ func (c *TreeClimber) addNode(graph *cgraph.Graph, address uint64, spotlight boo
 	}
 
 	if c.visited[address] {
-		node, _ := graph.Node(fmt.Sprintf("0x%x", address))
+		node, _ := graph.NodeByName(fmt.Sprintf("0x%x", address))
 		return node
 	}
 	c.visited[address] = true
 
 	finalizer, _ := c.finalizers[address]
 
-	node, _ := graph.CreateNode(fmt.Sprintf("0x%x", address))
+	node, _ := graph.CreateNodeByName(fmt.Sprintf("0x%x", address))
 	switch r := record.(type) {
 	case *heapdump.Object:
 		name := r.GetName()
@@ -160,7 +166,7 @@ func (c *TreeClimber) addNode(graph *cgraph.Graph, address uint64, spotlight boo
 					if isOwner {
 						foundOwner = true
 						on := c.addNode(graph, a.GetAddress(), false)
-						edge, _ := graph.CreateEdge("", on, node)
+						edge, _ := graph.CreateEdgeByName("", on, node)
 						if dest != address {
 							edge.SetHeadLabel(fmt.Sprintf("0x%x\n(offset = %d)", dest, dest-address))
 							edge.SetColor("red")
