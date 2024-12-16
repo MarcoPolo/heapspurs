@@ -179,7 +179,6 @@ func main() {
 	if err != nil {
 		panic(fmt.Sprintf("Create '%s': %v\n", conf.Output, err))
 	}
-	panic("Not implemented")
-	// climber.WriteSVG(conf.Address, out)
+	climber.WriteSVG(conf.Address, out)
 	out.Close()
 }
